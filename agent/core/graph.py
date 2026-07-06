@@ -9,11 +9,16 @@ from __future__ import annotations
 
 from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import HumanMessage, ToolMessage
+from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, START, StateGraph
-from pydantic import BaseModel, Field
+from langgraph.types import interrupt
+from pydantic import BaseModel, Field, ValidationError
 
+from agent.core.actions.executors import execute
+from agent.core.actions.registry import validate_action
 from agent.core.ranking import rank_candidates
 from agent.core.state import State
+from agent.core.tools.actions import propose_action
 from agent.core.tools.commits import get_commit_diff
 from agent.core.tools.deploys import get_recent_deploys
 from agent.core.tools.logs import get_error_samples
@@ -120,8 +125,23 @@ def rank_commits(state: State) -> dict:
     )
     new_messages.append(extraction_prompt)
 
+    # Structured-output extraction is a real LLM call, not a deterministic
+    # parse — the model occasionally omits a required field (observed:
+    # dropping ranked_candidates). Retry a couple of times before giving up,
+    # rather than letting a single flaky response crash the whole graph.
     verdict_model = ChatAnthropic(model=MODEL).with_structured_output(CulpritVerdict)
-    verdict: CulpritVerdict = verdict_model.invoke(history + new_messages)
+    verdict: CulpritVerdict | None = None
+    last_error: Exception | None = None
+    for _ in range(3):
+        try:
+            verdict = verdict_model.invoke(history + new_messages)
+            break
+        except ValidationError as e:
+            last_error = e
+    if verdict is None:
+        raise RuntimeError(
+            f"Model failed to produce a valid CulpritVerdict after 3 attempts: {last_error}"
+        )
 
     return {
         # `messages` uses the add_messages reducer, which appends whatever is
@@ -192,15 +212,121 @@ def estimate_impact(state: State) -> dict:
     }
 
 
-def build_graph():
+def propose_remediation(state: State) -> dict:
+    """Model-driven step: decide whether a remediation is warranted and, if
+    so, propose one from the fixed action registry via propose_action. The
+    model may also decide no action is warranted and just respond in text —
+    tool_choice is left at "auto", not forced, so it has that option.
+
+    propose_action validates its args against the registry and raises if the
+    model gets them wrong (e.g. missing target_commit_sha for a rollback).
+    That error is fed back as a tool_result so the model can correct itself
+    — the standard tool-error-recovery pattern — rather than crashing the
+    graph on one bad call, which matters more here than elsewhere since this
+    is the step right before something reaches a human for approval."""
+    model = ChatAnthropic(model=MODEL).bind_tools([propose_action])
+    culprit = state["culprit_commit"]
+    runbook = state["runbook_match"]
+    impact = state["impact"]
+
+    prompt = (
+        "Investigation summary:\n"
+        f"- Probable cause: {culprit['commit_sha']} "
+        f"(confidence={culprit['confidence']}) — {culprit['reasoning']}\n"
+        f"- Matching runbook: {runbook['title'] if runbook else 'none found'}\n"
+        f"- Impact: {impact['summary']}\n\n"
+        "Decide whether a remediation action is warranted. If the culprit "
+        "commit is identified with reasonable confidence and a rollback is "
+        "the appropriate mitigation, call propose_action. If confidence is "
+        "low, no code-level cause was found, or no safe automated action "
+        "applies, do not call any tool — just briefly explain why no action "
+        "is proposed."
+    )
+    messages: list = [HumanMessage(content=prompt)]
+
+    proposed_result = None
+    for _ in range(3):  # bounded so a persistently-wrong model can't loop forever
+        response = model.invoke(messages)
+        messages.append(response)
+
+        if not response.tool_calls:
+            return {"proposed_action": None, "proposed_action_id": None}
+
+        call = response.tool_calls[0]
+        try:
+            proposed_result = propose_action.invoke(call["args"])
+        except ValidationError as e:
+            messages.append(ToolMessage(content=f"Error: {e}", tool_call_id=call["id"]))
+            continue
+        break
+
+    if proposed_result is None:
+        # Model couldn't produce valid action args after retries — treat as
+        # "no safe action to propose" rather than crashing the graph.
+        return {"proposed_action": None, "proposed_action_id": None}
+
+    return {
+        "proposed_action": proposed_result,
+        "proposed_action_id": proposed_result["proposed_action_id"],
+    }
+
+
+def _route_after_proposal(state: State) -> str:
+    return "await_approval" if state.get("proposed_action") else END
+
+
+def await_approval(state: State) -> dict:
+    """Pause the graph until a human approves or rejects the proposed
+    action (the Slack Approve/Reject click, in the real system — a CLI
+    prompt for now, see eval/run_incident.py). This node does nothing else,
+    so re-running it on resume (LangGraph restarts an interrupted node from
+    the top) never redoes expensive work — see docs/DESIGN.md §3."""
+    decision = interrupt(
+        {
+            "proposed_action": state["proposed_action"],
+            "message": "Approve or reject the proposed remediation action.",
+        }
+    )
+    return {"action_decision": decision}
+
+
+def execute_action(state: State) -> dict:
+    """Run the approved action via the registry executor, or record that it
+    was skipped if rejected. Executors are fixture-phase stubs (see
+    agent/core/actions/executors.py) since no real target system exists yet."""
+    decision = state.get("action_decision")
+    if decision != "approved":
+        return {"execution_result": f"Skipped — action_decision was {decision!r}."}
+
+    proposed = state["proposed_action"]
+    validated = validate_action(
+        proposed["action_type"], proposed["target_service"], proposed["action_args"]
+    )
+    return {"execution_result": execute(validated)}
+
+
+def build_graph(checkpointer=None):
     graph = StateGraph(State)
     graph.add_node("gather_context", gather_context)
     graph.add_node("rank_commits", rank_commits)
     graph.add_node("search_runbook", search_runbook)
     graph.add_node("estimate_impact", estimate_impact)
+    graph.add_node("propose_remediation", propose_remediation)
+    graph.add_node("await_approval", await_approval)
+    graph.add_node("execute_action", execute_action)
+
     graph.add_edge(START, "gather_context")
     graph.add_edge("gather_context", "rank_commits")
     graph.add_edge("rank_commits", "search_runbook")
     graph.add_edge("search_runbook", "estimate_impact")
-    graph.add_edge("estimate_impact", END)
-    return graph.compile()
+    graph.add_edge("estimate_impact", "propose_remediation")
+    graph.add_conditional_edges("propose_remediation", _route_after_proposal)
+    graph.add_edge("await_approval", "execute_action")
+    graph.add_edge("execute_action", END)
+
+    # A checkpointer is required for the interrupt above to persist state
+    # across the pause. Callers that need the pause to survive a separate
+    # process (the FastAPI webhook + Slack listener split) pass a real
+    # checkpointer in (see agent/core/checkpointer.py); eval/fixture scripts
+    # get the in-memory default, which is fine within one process.
+    return graph.compile(checkpointer=checkpointer or MemorySaver())

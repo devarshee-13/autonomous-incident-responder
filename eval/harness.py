@@ -32,6 +32,7 @@ class ScenarioResult:
     reasoning: str
     runbook_match: dict | None
     impact: dict | None
+    proposed_action: dict | None
 
 
 def discover_scenarios() -> list[Path]:
@@ -46,14 +47,15 @@ def run_scenario(scenario_dir: Path) -> ScenarioResult:
 
     alert = load_alert()
     expected = json.loads((scenario_dir / "expected.json").read_text())
+    incident_id = f"eval-{scenario_dir.name}"
 
+    # A checkpointer is configured on the compiled graph (needed for the
+    # approval interrupt further down the graph), which requires a
+    # thread_id even for runs that never hit that interrupt.
     graph = build_graph()
     result = graph.invoke(
-        {
-            "incident_id": f"eval-{scenario_dir.name}",
-            "alert": alert,
-            "messages": [],
-        }
+        {"incident_id": incident_id, "alert": alert, "messages": []},
+        config={"configurable": {"thread_id": incident_id}},
     )
     culprit = result["culprit_commit"]
 
@@ -78,4 +80,5 @@ def run_scenario(scenario_dir: Path) -> ScenarioResult:
         reasoning=culprit["reasoning"],
         runbook_match=result.get("runbook_match"),
         impact=result.get("impact"),
+        proposed_action=result.get("proposed_action"),
     )

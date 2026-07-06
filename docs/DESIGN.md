@@ -289,12 +289,15 @@ def search_runbooks(query: str, top_k: int = 3) -> list[dict]:
 @tool
 def propose_action(
     action_type: Literal["rollback_to_previous_deploy", "restart_service", "scale_service"],
-    target_service: str, args: dict, rationale: str,
+    target_service: str, action_args: dict, rationale: str,
 ) -> str:
     """Propose a remediation action. Does NOT execute anything — creates a
     pending approval request that a human must approve in Slack. Returns the
     proposed_action_id."""
     ...
+    # Named action_args, not args — LangChain's tool-schema generation
+    # mangles a field literally named `args` (observed: TypeError with an
+    # unexpected `v__args` kwarg at call time).
 ```
 
 There's no `finalize_investigation` tool — with LangGraph, the structured

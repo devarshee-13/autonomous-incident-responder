@@ -21,5 +21,8 @@ class State(TypedDict):
     ranked_candidates: list[dict]
     runbook_match: dict | None
     impact: dict | None
+    proposed_action: dict | None
     proposed_action_id: str | None
+    action_decision: str | None
+    execution_result: str | None
     messages: Annotated[list[BaseMessage], add_messages]

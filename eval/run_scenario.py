@@ -41,6 +41,12 @@ def main() -> None:
             )
         if r.impact:
             print(f"       impact: {r.impact['summary']}")
+        if r.proposed_action:
+            print(
+                f"       proposed action: {r.proposed_action['action_type']} "
+                f"on {r.proposed_action['target_service']} (pending approval — "
+                f"see eval/run_incident.py to exercise the approval flow)"
+            )
         print()
 
     passed = sum(r.passed for r in results)

@@ -17,6 +17,8 @@ from agent.core.state import State
 from agent.core.tools.commits import get_commit_diff
 from agent.core.tools.deploys import get_recent_deploys
 from agent.core.tools.logs import get_error_samples
+from agent.core.tools.metrics import query_metrics
+from agent.core.tools.runbooks import search_runbooks
 
 MODEL = "claude-opus-4-8"
 
@@ -136,11 +138,69 @@ def rank_commits(state: State) -> dict:
     }
 
 
+def search_runbook(state: State) -> dict:
+    """Deterministic retrieval: find the best-matching runbook using the
+    alert description plus the culprit reasoning as the query. Plain
+    Python — no model call needed for this lookup (see docs/DESIGN.md)."""
+    alert = state["alert"]
+    culprit = state["culprit_commit"]
+    query = f"{alert['description']} {culprit['reasoning']}"
+    matches = search_runbooks.invoke({"query": query, "top_k": 1})
+    return {"runbook_match": matches[0] if matches else None}
+
+
+def estimate_impact(state: State) -> dict:
+    """Deterministic impact estimate: pull error-rate/request-rate metrics
+    and derive an approximate affected-request count. Plain Python — this
+    is arithmetic, not reasoning, so no model call here either."""
+    alert = state["alert"]
+    error = query_metrics.invoke(
+        {
+            "service": alert["service"],
+            "metric": "error_rate",
+            "start": alert["fired_at"],
+            "end": alert["fired_at"],
+        }
+    )
+    requests = query_metrics.invoke(
+        {
+            "service": alert["service"],
+            "metric": "request_rate",
+            "start": alert["fired_at"],
+            "end": alert["fired_at"],
+        }
+    )
+
+    duration_min = error["observed_duration_minutes"]
+    delta = max(error["during"] - error["baseline"], 0.0)
+    affected_requests = round(delta * requests["during"] * duration_min)
+
+    summary = (
+        f"Error rate rose from {error['baseline']:.1%} to {error['during']:.1%} "
+        f"over ~{duration_min} min, at ~{requests['during']:.0f} req/min — "
+        f"an estimated {affected_requests} requests affected."
+    )
+
+    return {
+        "impact": {
+            "error_rate_baseline": error["baseline"],
+            "error_rate_during": error["during"],
+            "estimated_affected_requests": affected_requests,
+            "duration_minutes": duration_min,
+            "summary": summary,
+        }
+    }
+
+
 def build_graph():
     graph = StateGraph(State)
     graph.add_node("gather_context", gather_context)
     graph.add_node("rank_commits", rank_commits)
+    graph.add_node("search_runbook", search_runbook)
+    graph.add_node("estimate_impact", estimate_impact)
     graph.add_edge(START, "gather_context")
     graph.add_edge("gather_context", "rank_commits")
-    graph.add_edge("rank_commits", END)
+    graph.add_edge("rank_commits", "search_runbook")
+    graph.add_edge("search_runbook", "estimate_impact")
+    graph.add_edge("estimate_impact", END)
     return graph.compile()

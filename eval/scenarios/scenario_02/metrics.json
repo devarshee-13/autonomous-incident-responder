@@ -1,0 +1,7 @@
+{
+  "service": "orders-service",
+  "error_rate": {"baseline": 0.003, "during": 0.058},
+  "request_rate_per_min": {"baseline": 210, "during": 205},
+  "p99_latency_ms": {"baseline": 140, "during": 145},
+  "observed_duration_minutes": 8
+}

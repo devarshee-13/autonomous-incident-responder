@@ -27,9 +27,11 @@ class ScenarioResult:
     name: str
     passed: bool
     detail: str
-    commit_sha: str
+    commit_sha: str | None
     confidence: float
     reasoning: str
+    runbook_match: dict | None
+    impact: dict | None
 
 
 def discover_scenarios() -> list[Path]:
@@ -74,4 +76,6 @@ def run_scenario(scenario_dir: Path) -> ScenarioResult:
         commit_sha=culprit["commit_sha"],
         confidence=culprit["confidence"],
         reasoning=culprit["reasoning"],
+        runbook_match=result.get("runbook_match"),
+        impact=result.get("impact"),
     )

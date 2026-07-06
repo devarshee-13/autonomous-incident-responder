@@ -1,0 +1,7 @@
+{
+  "service": "search-service",
+  "error_rate": {"baseline": 0.002, "during": 0.083},
+  "request_rate_per_min": {"baseline": 890, "during": 910},
+  "p99_latency_ms": {"baseline": 95, "during": 98},
+  "observed_duration_minutes": 10
+}

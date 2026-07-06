@@ -33,3 +33,7 @@ def load_deploys() -> list[dict]:
 
 def load_error_samples() -> list[dict]:
     return json.loads((scenario_path() / "error_samples.json").read_text())
+
+
+def load_metrics() -> dict:
+    return json.loads((scenario_path() / "metrics.json").read_text())

@@ -1,0 +1,7 @@
+{
+  "service": "payments-service",
+  "error_rate": {"baseline": 0.004, "during": 0.071},
+  "request_rate_per_min": {"baseline": 340, "during": 352},
+  "p99_latency_ms": {"baseline": 180, "during": 190},
+  "observed_duration_minutes": 12
+}

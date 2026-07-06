@@ -1,0 +1,7 @@
+{
+  "service": "notifications-service",
+  "error_rate": {"baseline": 0.006, "during": 0.041},
+  "request_rate_per_min": {"baseline": 65, "during": 60},
+  "p99_latency_ms": {"baseline": 210, "during": 640},
+  "observed_duration_minutes": 5
+}

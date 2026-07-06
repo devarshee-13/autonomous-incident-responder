@@ -33,7 +33,15 @@ def main() -> None:
     for r in results:
         status = "PASS" if r.passed else "FAIL"
         print(f"[{status}] {r.name}: {r.detail}")
-        print(f"       reasoning: {r.reasoning}\n")
+        print(f"       reasoning: {r.reasoning}")
+        if r.runbook_match:
+            print(
+                f"       runbook: {r.runbook_match['runbook_id']} "
+                f"(score={r.runbook_match['score']})"
+            )
+        if r.impact:
+            print(f"       impact: {r.impact['summary']}")
+        print()
 
     passed = sum(r.passed for r in results)
     print(f"{passed}/{len(results)} scenarios passed")

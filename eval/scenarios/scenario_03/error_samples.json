@@ -1,0 +1,11 @@
+[
+  {
+    "service": "search-service",
+    "timestamp": "2026-07-05T11:39:15Z",
+    "fingerprint": "keyerror-sort-field",
+    "count": 210,
+    "exception_type": "KeyError",
+    "message": "'relevance'",
+    "stack_trace": "Traceback (most recent call last):\n  File \"search/handlers.py\", line 22, in search\n    return build_query(term, sort_by, category)\n  File \"search/query_builder.py\", line 18, in build_query\n    field = SORT_FIELD_MAP[sort_by]\nKeyError: 'relevance'\n"
+  }
+]

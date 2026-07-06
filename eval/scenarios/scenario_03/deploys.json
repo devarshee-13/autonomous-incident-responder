@@ -1,0 +1,29 @@
+[
+  {
+    "service": "search-service",
+    "commit_sha": "sha_new222",
+    "author": "agupta",
+    "message": "Refactor sort field mapping in query_builder for clarity",
+    "deployed_at": "2026-07-05T11:30:00Z",
+    "files_changed": ["search/query_builder.py"],
+    "diff": "--- a/search/query_builder.py\n+++ b/search/query_builder.py\n@@ -1,7 +1,6 @@\n-SORT_FIELD_MAP = {\n-    \"relevance\": \"_score\",\n-    \"date\": \"created_at\",\n-    \"price\": \"price_cents\",\n-}\n+SORT_FIELD_MAP = {\n+    \"date\": \"created_at\",\n+    \"price\": \"price_cents\",\n+}\n"
+  },
+  {
+    "service": "search-service",
+    "commit_sha": "sha_old111",
+    "author": "mchen",
+    "message": "Add category filter support to query_builder",
+    "deployed_at": "2026-07-05T11:24:00Z",
+    "files_changed": ["search/query_builder.py"],
+    "diff": "--- a/search/query_builder.py\n+++ b/search/query_builder.py\n@@ -20,7 +20,10 @@ def build_query(term, sort_by, category=None):\n     field = SORT_FIELD_MAP[sort_by]\n-    return {\"term\": term, \"sort\": field}\n+    query = {\"term\": term, \"sort\": field}\n+    if category is not None:\n+        query[\"category\"] = category\n+    return query\n"
+  },
+  {
+    "service": "search-service",
+    "commit_sha": "b3c4d5e",
+    "author": "jsmith",
+    "message": "Add search analytics event logging",
+    "deployed_at": "2026-07-05T10:40:00Z",
+    "files_changed": ["search/analytics.py"],
+    "diff": "--- a/search/analytics.py\n+++ b/search/analytics.py\n@@ -5,6 +5,7 @@ def log_search(term):\n+    metrics.increment(\"search.query\")\n     logger.info(\"search\", term=term)\n"
+  }
+]

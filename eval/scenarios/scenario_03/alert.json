@@ -1,0 +1,7 @@
+{
+  "service": "search-service",
+  "alert_name": "HighErrorRate",
+  "description": "Error rate for search-service exceeded 5% over a 5 minute window",
+  "fired_at": "2026-07-05T11:40:00Z",
+  "severity": "critical"
+}

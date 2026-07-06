@@ -1,0 +1,29 @@
+[
+  {
+    "service": "notifications-service",
+    "commit_sha": "aa11bb2",
+    "author": "mchen",
+    "message": "Add new order-shipped email template",
+    "deployed_at": "2026-07-05T09:05:00Z",
+    "files_changed": ["notifications/templates/order_shipped.py"],
+    "diff": "--- /dev/null\n+++ b/notifications/templates/order_shipped.py\n@@ -0,0 +1,4 @@\n+TEMPLATE = \"\"\"\n+Your order {order_id} has shipped!\n+\"\"\"\n"
+  },
+  {
+    "service": "notifications-service",
+    "commit_sha": "cc33dd4",
+    "author": "jsmith",
+    "message": "Add structured logging to notification dispatch",
+    "deployed_at": "2026-07-05T08:40:00Z",
+    "files_changed": ["notifications/dispatch.py"],
+    "diff": "--- a/notifications/dispatch.py\n+++ b/notifications/dispatch.py\n@@ -12,6 +12,7 @@ def dispatch(notification):\n+    logger.info(\"dispatching\", type=notification.type)\n     return _send(notification)\n"
+  },
+  {
+    "service": "notifications-service",
+    "commit_sha": "ee55ff6",
+    "author": "agupta",
+    "message": "Bump jinja2 dependency version",
+    "deployed_at": "2026-07-05T07:10:00Z",
+    "files_changed": ["requirements.txt"],
+    "diff": "--- a/requirements.txt\n+++ b/requirements.txt\n@@ -6,1 +6,1 @@\n-jinja2==3.1.3\n+jinja2==3.1.4\n"
+  }
+]

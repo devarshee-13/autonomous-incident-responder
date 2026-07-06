@@ -1,0 +1,7 @@
+{
+  "service": "notifications-service",
+  "alert_name": "HighErrorRate",
+  "description": "Error rate for notifications-service exceeded 5% over a 5 minute window",
+  "fired_at": "2026-07-05T09:15:00Z",
+  "severity": "warning"
+}

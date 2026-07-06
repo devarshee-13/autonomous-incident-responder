@@ -1,0 +1,7 @@
+{
+  "service": "orders-service",
+  "alert_name": "HighErrorRate",
+  "description": "Error rate for orders-service exceeded 5% over a 5 minute window",
+  "fired_at": "2026-07-05T16:10:00Z",
+  "severity": "critical"
+}

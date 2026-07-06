@@ -28,7 +28,13 @@ class RankedCandidate(BaseModel):
 
 
 class CulpritVerdict(BaseModel):
-    commit_sha: str = Field(description="The commit most likely responsible for the alert")
+    commit_sha: str | None = Field(
+        default=None,
+        description=(
+            "The commit most likely responsible for the alert, or null if none "
+            "of the candidates plausibly explain the observed error."
+        ),
+    )
     confidence: float = Field(ge=0, le=1)
     reasoning: str
     ranked_candidates: list[RankedCandidate]
@@ -64,7 +70,12 @@ def gather_context(state: State) -> dict:
         f"Candidate deploys (heuristically pre-ranked, highest score first). "
         f"Use get_commit_diff to inspect any commit's contents before deciding:\n"
         f"{candidates_text}\n\n"
-        "Determine which commit most likely caused this alert."
+        "Determine which commit most likely caused this alert. If, after "
+        "reading the diffs, none of the candidates plausibly explain the "
+        "observed error (e.g. the error looks like an external/downstream "
+        "failure, or none of the changed code paths relate to the stack "
+        "trace), say so explicitly and give a low confidence score rather "
+        "than confidently blaming an innocent commit."
     )
 
     return {
@@ -94,7 +105,19 @@ def rank_commits(state: State) -> dict:
 
     # A second, separately-configured call extracts the structured verdict
     # from the finished conversation — cleaner than parsing JSON out of the
-    # free-text response by hand.
+    # free-text response by hand. The tool-calling loop above ends on the
+    # model's own assistant-role message, and Claude 4.6+/Opus 4.8 reject any
+    # request whose conversation ends in an assistant turn (no prefill) — so
+    # we append one more user turn asking for the verdict before this call.
+    extraction_prompt = HumanMessage(
+        content=(
+            "Based on the investigation above, provide your final verdict: "
+            "the most likely culprit commit, your confidence, your reasoning, "
+            "and a full ranking of all candidates considered."
+        )
+    )
+    new_messages.append(extraction_prompt)
+
     verdict_model = ChatAnthropic(model=MODEL).with_structured_output(CulpritVerdict)
     verdict: CulpritVerdict = verdict_model.invoke(history + new_messages)
 

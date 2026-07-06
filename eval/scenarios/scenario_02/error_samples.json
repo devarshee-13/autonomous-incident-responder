@@ -1,0 +1,11 @@
+[
+  {
+    "service": "orders-service",
+    "timestamp": "2026-07-05T16:09:40Z",
+    "fingerprint": "keyerror-inventory-cache",
+    "count": 87,
+    "exception_type": "KeyError",
+    "message": "'sku_884213'",
+    "stack_trace": "Traceback (most recent call last):\n  File \"orders/checkout.py\", line 30, in checkout\n    if not check_availability(item.sku):\n  File \"orders/inventory_client.py\", line 19, in check_availability\n    return _CACHE[f\"sku_{sku}\"][\"available\"]\nKeyError: 'sku_884213'\n"
+  }
+]

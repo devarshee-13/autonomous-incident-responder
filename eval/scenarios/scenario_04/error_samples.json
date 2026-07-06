@@ -1,0 +1,11 @@
+[
+  {
+    "service": "notifications-service",
+    "timestamp": "2026-07-05T09:14:50Z",
+    "fingerprint": "smtp-disconnected",
+    "count": 64,
+    "exception_type": "SMTPServerDisconnected",
+    "message": "Connection unexpectedly closed",
+    "stack_trace": "Traceback (most recent call last):\n  File \"notifications/email_client.py\", line 8, in send\n    smtp.sendmail(from_addr, to_addr, message)\n  File \"/usr/lib/python3.13/smtplib.py\", line 900, in sendmail\n    (code, resp) = self.data(msg)\nsmtplib.SMTPServerDisconnected: Connection unexpectedly closed\n"
+  }
+]

@@ -1,42 +1,42 @@
-"""Run a fixture scenario through the investigation graph and check the
-result against the scenario's ground truth.
+"""Run fixture scenario(s) through the investigation graph and check the
+results against ground truth.
 
 Usage:
-    export ANTHROPIC_API_KEY=...
+    # ANTHROPIC_API_KEY is loaded from a .env file in the project root (see
+    # .env.example) — no need to `export` it by hand.
+
+    # run every scenario under eval/scenarios/
+    python -m eval.run_scenario
+
+    # run just one
     SCENARIO_DIR=eval/scenarios/scenario_01 python -m eval.run_scenario
 """
 
 from __future__ import annotations
 
-import json
+import os
+from pathlib import Path
 
-from agent.core.fixtures import load_alert, scenario_path
-from agent.core.graph import build_graph
+from dotenv import load_dotenv
+
+from eval.harness import discover_scenarios, run_scenario
+
+load_dotenv()
 
 
 def main() -> None:
-    alert = load_alert()
-    expected = json.loads((scenario_path() / "expected.json").read_text())
+    override = os.environ.get("SCENARIO_DIR")
+    scenario_dirs = [Path(override)] if override else discover_scenarios()
 
-    graph = build_graph()
-    result = graph.invoke(
-        {
-            "incident_id": f"eval-{scenario_path().name}",
-            "alert": alert,
-            "messages": [],
-        }
-    )
+    results = [run_scenario(d) for d in scenario_dirs]
 
-    culprit = result["culprit_commit"]
-    print(f"Predicted culprit: {culprit['commit_sha']} (confidence={culprit['confidence']})")
-    print(f"Reasoning: {culprit['reasoning']}\n")
-    print("Ranked candidates:")
-    for c in result["ranked_candidates"]:
-        print(f"  {c['rank']}. {c['commit_sha']} — {c['reasoning']}")
+    for r in results:
+        status = "PASS" if r.passed else "FAIL"
+        print(f"[{status}] {r.name}: {r.detail}")
+        print(f"       reasoning: {r.reasoning}\n")
 
-    expected_sha = expected["culprit_commit_sha"]
-    passed = culprit["commit_sha"] == expected_sha
-    print(f"\n{'PASS' if passed else 'FAIL'}: expected {expected_sha}")
+    passed = sum(r.passed for r in results)
+    print(f"{passed}/{len(results)} scenarios passed")
 
 
 if __name__ == "__main__":

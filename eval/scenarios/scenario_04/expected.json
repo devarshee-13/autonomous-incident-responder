@@ -1,0 +1,5 @@
+{
+  "culprit_commit_sha": null,
+  "max_expected_confidence_if_null": 0.4,
+  "reason": "The error originates inside the third-party smtplib library (the mail provider dropped the connection) via notifications/email_client.py, a file none of the recent deploys touched. None of the three deploys (a new template, added logging, a minor dependency bump) plausibly explain an SMTP disconnection. A good agent should report low confidence rather than confidently blaming an innocent recent deploy."
+}

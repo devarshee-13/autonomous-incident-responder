@@ -1,0 +1,4 @@
+{
+  "culprit_commit_sha": "sha_new222",
+  "reason": "sha_new222 dropped the 'relevance' entry from SORT_FIELD_MAP, which is the default sort option — any request without an explicit sort_by (or with sort_by='relevance') now raises KeyError. sha_old111 also touches query_builder.py (adds category filtering) but never modifies SORT_FIELD_MAP, so it's an innocent same-file change deployed minutes earlier. This scenario checks that the model reads diff content to distinguish two commits to the same file rather than just matching on 'touched this file'."
+}

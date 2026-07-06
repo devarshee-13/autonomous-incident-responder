@@ -1,0 +1,29 @@
+[
+  {
+    "service": "orders-service",
+    "commit_sha": "f1a2b3c",
+    "author": "rpatel",
+    "message": "Read inventory availability from local cache instead of calling the inventory API",
+    "deployed_at": "2026-07-05T16:02:00Z",
+    "files_changed": ["orders/inventory_client.py"],
+    "diff": "--- a/orders/inventory_client.py\n+++ b/orders/inventory_client.py\n@@ -18,7 +18,7 @@ def check_availability(sku):\n-    return _fetch_from_api(sku).get(\"available\", False)\n+    return _CACHE[f\"sku_{sku}\"][\"available\"]\n"
+  },
+  {
+    "service": "orders-service",
+    "commit_sha": "e4d5c6b",
+    "author": "jsmith",
+    "message": "Add retry wrapper around order creation",
+    "deployed_at": "2026-07-05T15:25:00Z",
+    "files_changed": ["orders/order_service.py"],
+    "diff": "--- a/orders/order_service.py\n+++ b/orders/order_service.py\n@@ -40,7 +40,10 @@ def create_order(cart):\n-    return _persist(cart)\n+    for attempt in range(3):\n+        try:\n+            return _persist(cart)\n+        except TransientDBError:\n+            continue\n"
+  },
+  {
+    "service": "orders-service",
+    "commit_sha": "a1b1c1d",
+    "author": "mchen",
+    "message": "Fix SMS confirmation template escaping",
+    "deployed_at": "2026-07-05T14:20:00Z",
+    "files_changed": ["notifications/sms.py"],
+    "diff": "--- a/notifications/sms.py\n+++ b/notifications/sms.py\n@@ -10,7 +10,7 @@ def render(order):\n-    return f\"Order {order.id} confirmed\"\n+    return f\"Order {order.id} confirmed for {order.customer_name}\"\n"
+  }
+]

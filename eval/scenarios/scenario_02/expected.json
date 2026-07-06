@@ -1,0 +1,4 @@
+{
+  "culprit_commit_sha": "f1a2b3c",
+  "reason": "Switched from calling the inventory API to reading from a local _CACHE dict, but the cache isn't guaranteed to be populated for every sku — uncached skus raise KeyError. Matches the stack trace exactly, and is also the most recent deploy: this scenario checks that the heuristic/model don't undervalue a correct culprit just because it happens to be the most recent commit."
+}

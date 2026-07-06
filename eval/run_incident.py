@@ -1,6 +1,6 @@
 """Run one fixture scenario through the FULL investigation + remediation
-graph, including the human-in-the-loop approval interrupt — a CLI stand-in
-for the eventual Slack Approve/Reject button.
+graph, including the human-in-the-loop approval interrupt (a CLI stand-in
+for the eventual Slack Approve/Reject button), then generate a postmortem.
 
 Usage:
     SCENARIO_DIR=eval/scenarios/scenario_01 python -m eval.run_incident
@@ -11,14 +11,25 @@ Usage:
 from __future__ import annotations
 
 import argparse
+from pathlib import Path
 
 from dotenv import load_dotenv
 from langgraph.types import Command
 
 from agent.core.fixtures import load_alert, scenario_path
 from agent.core.graph import build_graph
+from agent.core.postmortem import generate_postmortem
 
 load_dotenv()
+
+POSTMORTEMS_DIR = Path(__file__).resolve().parents[1] / "postmortems"
+
+
+def _write_postmortem(incident_id: str, incident: dict) -> Path:
+    POSTMORTEMS_DIR.mkdir(exist_ok=True)
+    path = POSTMORTEMS_DIR / f"{incident_id}.md"
+    path.write_text(generate_postmortem(incident))
+    return path
 
 
 def main() -> None:
@@ -48,23 +59,30 @@ def main() -> None:
     proposed = result.get("proposed_action")
     if not proposed:
         print("\nNo remediation proposed — investigation complete, no approval needed.")
-        return
-
-    print(f"\nProposed action: {proposed['action_type']} on {proposed['target_service']}")
-    print(f"Args: {proposed['action_args']}")
-    print(f"Rationale: {proposed['rationale']}")
-
-    if args.auto_approve:
-        decision = "approved"
-    elif args.auto_reject:
-        decision = "rejected"
+        final = result
     else:
-        answer = input("\nApprove this action? [y/N] ").strip().lower()
-        decision = "approved" if answer == "y" else "rejected"
+        print(f"\nProposed action: {proposed['action_type']} on {proposed['target_service']}")
+        print(f"Args: {proposed['action_args']}")
+        print(f"Rationale: {proposed['rationale']}")
 
-    final = graph.invoke(Command(resume=decision), config=config)
-    print(f"\nDecision: {decision}")
-    print(f"Execution result: {final['execution_result']}")
+        if args.auto_approve:
+            decision = "approved"
+        elif args.auto_reject:
+            decision = "rejected"
+        else:
+            answer = input("\nApprove this action? [y/N] ").strip().lower()
+            decision = "approved" if answer == "y" else "rejected"
+
+        final = graph.invoke(Command(resume=decision), config=config)
+        print(f"\nDecision: {decision}")
+        print(f"Execution result: {final['execution_result']}")
+
+    # Resolution reached (either an action was decided, or none was needed) —
+    # generate the postmortem from the full incident record.
+    print("\n=== POSTMORTEM ===")
+    path = _write_postmortem(incident_id, {"incident_id": incident_id, **final})
+    print(f"Written to {path}\n")
+    print(path.read_text())
 
 
 if __name__ == "__main__":

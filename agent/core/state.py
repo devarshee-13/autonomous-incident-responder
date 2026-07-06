@@ -27,4 +27,6 @@ class State(TypedDict):
     proposed_action_id: str | None
     action_decision: str | None
     execution_result: str | None
+    fix_decision: str | None
+    fix_apply_result: str | None
     messages: Annotated[list[BaseMessage], add_messages]

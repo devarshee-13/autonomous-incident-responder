@@ -16,7 +16,7 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.types import interrupt
 from pydantic import BaseModel, Field, ValidationError
 
-from agent.core.actions.executors import execute
+from agent.core.actions.executors import apply_fix, execute
 from agent.core.actions.registry import validate_action
 from agent.core.fix_verifier import verify_fix
 from agent.core.ranking import rank_candidates
@@ -412,38 +412,80 @@ def propose_remediation(state: State) -> dict:
     }
 
 
+def _fix_is_applyable(state: State) -> bool:
+    """A suggested fix is offered for human approval ONLY if it was actually
+    verified (the test failed on the bug and passed on the fix). The agent
+    never asks a human to approve applying an unproven patch — an unverified
+    fix stays advisory-only."""
+    fix = state.get("suggested_fix")
+    return bool(fix and fix.get("verification", {}).get("fix_verified"))
+
+
 def _route_after_proposal(state: State) -> str:
-    return "await_approval" if state.get("proposed_action") else END
+    # Pause for approval if there's a rollback to approve OR a verified fix
+    # that could be applied. Otherwise the incident resolves with no gate.
+    if state.get("proposed_action") or _fix_is_applyable(state):
+        return "await_approval"
+    return END
 
 
 def await_approval(state: State) -> dict:
-    """Pause the graph until a human approves or rejects the proposed
-    action (the Slack Approve/Reject click, in the real system — a CLI
-    prompt for now, see eval/run_incident.py). This node does nothing else,
-    so re-running it on resume (LangGraph restarts an interrupted node from
-    the top) never redoes expensive work — see docs/DESIGN.md §3."""
-    decision = interrupt(
-        {
-            "proposed_action": state["proposed_action"],
-            "message": "Approve or reject the proposed remediation action.",
+    """Pause the graph until a human decides on the pending remediations (the
+    Slack Approve/Reject click, in the real system — a CLI prompt for now,
+    see eval/run_incident.py). Two independently-approvable things may be
+    pending: the rollback (immediate mitigation) and the verified code fix
+    (forward-fix). This node does nothing else, so re-running it on resume
+    (LangGraph restarts an interrupted node from the top) never redoes
+    expensive work — see docs/DESIGN.md §3.
+
+    The resume value may be a dict {"action": ..., "fix": ...} (to decide each
+    independently) or a bare string (legacy: applies to the rollback only)."""
+    payload: dict = {"message": "Approve or reject the pending remediation(s)."}
+    if state.get("proposed_action"):
+        payload["proposed_action"] = state["proposed_action"]
+    if _fix_is_applyable(state):
+        payload["applyable_fix"] = state["suggested_fix"]["explanation"]
+
+    decision = interrupt(payload)
+    if isinstance(decision, dict):
+        return {
+            "action_decision": decision.get("action"),
+            "fix_decision": decision.get("fix"),
         }
-    )
-    return {"action_decision": decision}
+    return {"action_decision": decision, "fix_decision": None}
 
 
 def execute_action(state: State) -> dict:
-    """Run the approved action via the registry executor, or record that it
-    was skipped if rejected. Executors are fixture-phase stubs (see
+    """Carry out whatever was approved: the rollback (via the registry
+    executor) and/or applying the verified fix (opening a PR — a stub for
+    now, like the rollback executor). Records a result line for each thing
+    that was pending. Executors are fixture-phase stubs (see
     agent/core/actions/executors.py) since no real target system exists yet."""
-    decision = state.get("action_decision")
-    if decision != "approved":
-        return {"execution_result": f"Skipped — action_decision was {decision!r}."}
+    out: dict = {}
 
-    proposed = state["proposed_action"]
-    validated = validate_action(
-        proposed["action_type"], proposed["target_service"], proposed["action_args"]
-    )
-    return {"execution_result": execute(validated)}
+    proposed = state.get("proposed_action")
+    if proposed:
+        if state.get("action_decision") == "approved":
+            validated = validate_action(
+                proposed["action_type"], proposed["target_service"], proposed["action_args"]
+            )
+            out["execution_result"] = execute(validated)
+        else:
+            out["execution_result"] = (
+                f"Rollback skipped — decision was {state.get('action_decision')!r}."
+            )
+
+    if _fix_is_applyable(state):
+        if state.get("fix_decision") == "approved":
+            out["fix_apply_result"] = apply_fix(
+                state["suggested_fix"], state["alert"]["service"]
+            )
+        else:
+            out["fix_apply_result"] = (
+                f"Fix not applied — decision was {state.get('fix_decision')!r}."
+            )
+
+    return out
 
 
 def build_graph(checkpointer=None):

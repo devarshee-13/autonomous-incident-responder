@@ -50,6 +50,8 @@ def generate_postmortem(incident: dict) -> str:
         "decision": incident.get("action_decision"),
         "execution_result": incident.get("execution_result"),
         "suggested_fix": incident.get("suggested_fix"),
+        "fix_decision": incident.get("fix_decision"),
+        "fix_apply_result": incident.get("fix_apply_result"),
     }
 
     # langchain-anthropic defaults to max_tokens=1024, which truncates a

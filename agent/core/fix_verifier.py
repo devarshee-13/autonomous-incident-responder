@@ -14,6 +14,7 @@ boundary; never point this at untrusted input in a real deployment.
 
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 import tempfile
@@ -25,9 +26,8 @@ _TIMEOUT_SECONDS = 30
 def verify_fix(buggy_code: str, fixed_code: str, test_code: str) -> dict:
     """Run test_code against buggy_code then fixed_code.
 
-    The test is expected to import the subject under test as `from subject
-    import ...`, so buggy_code and fixed_code are each written as subject.py
-    in turn. Returns:
+    The test imports the subject as `from subject import ...`, so buggy_code
+    and fixed_code are each written as subject.py. Returns:
         {
           "bug_reproduced": bool,   # test failed against the buggy code
           "fix_verified": bool,     # test passed against the fixed code
@@ -35,13 +35,16 @@ def verify_fix(buggy_code: str, fixed_code: str, test_code: str) -> dict:
         }
     Never raises — a timeout, crash, or import error degrades to
     bug_reproduced/fix_verified = False with the captured output.
-    """
-    with tempfile.TemporaryDirectory(prefix="fixverify_") as tmp:
-        tmp_path = Path(tmp)
-        (tmp_path / "test_subject.py").write_text(test_code)
 
-        buggy_rc, buggy_out = _run_pytest(tmp_path, subject_code=buggy_code)
-        fixed_rc, fixed_out = _run_pytest(tmp_path, subject_code=fixed_code)
+    The two runs use SEPARATE temp dirs on purpose. Buggy and fixed code
+    often differ by a single character (e.g. `*` vs `/`), so they can have
+    identical byte size; reusing one dir let Python load a stale
+    (mtime,size)-keyed .pyc from the first run and silently re-execute the
+    buggy code on the "fixed" run. Fresh dirs + PYTHONDONTWRITEBYTECODE=1
+    below eliminate that entirely.
+    """
+    buggy_rc, buggy_out = _run_pytest(buggy_code, test_code)
+    fixed_rc, fixed_out = _run_pytest(fixed_code, test_code)
 
     return {
         # A non-zero return code on the buggy code means the test failed there,
@@ -55,20 +58,29 @@ def verify_fix(buggy_code: str, fixed_code: str, test_code: str) -> dict:
     }
 
 
-def _run_pytest(tmp_path: Path, subject_code: str) -> tuple[int | None, str]:
-    """Write subject.py and run pytest in tmp_path. Returns (returncode,
-    output); returncode is None if the run timed out or failed to launch."""
-    (tmp_path / "subject.py").write_text(subject_code)
-    try:
-        proc = subprocess.run(
-            [sys.executable, "-m", "pytest", "-q", "test_subject.py"],
-            cwd=tmp_path,
-            capture_output=True,
-            text=True,
-            timeout=_TIMEOUT_SECONDS,
-        )
-        return proc.returncode, proc.stdout + proc.stderr
-    except subprocess.TimeoutExpired:
-        return None, f"(timed out after {_TIMEOUT_SECONDS}s)"
-    except Exception as exc:  # noqa: BLE001 — verification must never crash the graph
-        return None, f"(failed to run pytest: {exc})"
+def _run_pytest(subject_code: str, test_code: str) -> tuple[int | None, str]:
+    """Run the test against subject_code in a fresh temp dir. Returns
+    (returncode, output); returncode is None if the run timed out or failed
+    to launch."""
+    with tempfile.TemporaryDirectory(prefix="fixverify_") as tmp:
+        tmp_path = Path(tmp)
+        (tmp_path / "subject.py").write_text(subject_code)
+        (tmp_path / "test_subject.py").write_text(test_code)
+        try:
+            proc = subprocess.run(
+                [sys.executable, "-B", "-m", "pytest", "-q", "-p", "no:cacheprovider",
+                 "test_subject.py"],
+                cwd=tmp_path,
+                capture_output=True,
+                text=True,
+                timeout=_TIMEOUT_SECONDS,
+                # -B / PYTHONDONTWRITEBYTECODE: never write .pyc, so there's no
+                # cached bytecode to go stale (belt-and-suspenders with the
+                # fresh dir).
+                env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"},
+            )
+            return proc.returncode, proc.stdout + proc.stderr
+        except subprocess.TimeoutExpired:
+            return None, f"(timed out after {_TIMEOUT_SECONDS}s)"
+        except Exception as exc:  # noqa: BLE001 — verification must never crash the graph
+            return None, f"(failed to run pytest: {exc})"

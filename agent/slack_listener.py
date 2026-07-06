@@ -38,6 +38,11 @@ def _handle_decision(decision: str, body: dict, client) -> None:
     decided_by = body["user"]["id"]
 
     config = {"configurable": {"thread_id": incident_id}}
+    # A bare-string resume decides the rollback only; await_approval treats the
+    # fix decision as unset (fix not applied). Separate Approve/Reject buttons
+    # for the verified fix are a follow-up on the (deferred) Slack surface —
+    # see agent/core/slack/blocks.py. The CLI path (eval/run_incident.py) sends
+    # the full {"action", "fix"} dict and does gate both.
     final = _graph.invoke(Command(resume=decision), config=config)
 
     client.chat_update(
@@ -46,7 +51,7 @@ def _handle_decision(decision: str, body: dict, client) -> None:
         text=f"Decision: {decision}",
         blocks=decision_result_blocks(
             decision=decision,
-            execution_result=final["execution_result"],
+            execution_result=final.get("execution_result", "(no action executed)"),
             decided_by=decided_by,
         ),
     )

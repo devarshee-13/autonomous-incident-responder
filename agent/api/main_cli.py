@@ -54,10 +54,15 @@ def handle_alert(alert: dict):
     fix_block = format_suggested_fix(snapshot.get("suggested_fix"))
     if fix_block:
         print(fix_block)
-    if proposed:
-        print(f"\nProposed action: {proposed['action_type']} on {proposed['target_service']}")
-        print(f"Args: {proposed['action_args']}")
-        print(f"Rationale: {proposed['rationale']}")
+    fix = snapshot.get("suggested_fix")
+    fix_applyable = bool(fix and fix.get("verification", {}).get("fix_verified"))
+    if proposed or fix_applyable:
+        if proposed:
+            print(f"\nProposed action: {proposed['action_type']} on {proposed['target_service']}")
+            print(f"Args: {proposed['action_args']}")
+            print(f"Rationale: {proposed['rationale']}")
+        if fix_applyable:
+            print("\nProposed: open a PR applying the verified fix shown above.")
         print(
             "\n(Pending approval — no approval channel wired in this Slack-free "
             "variant. Use agent/api/main.py + the Slack listener for the "

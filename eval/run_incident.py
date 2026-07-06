@@ -16,6 +16,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 from langgraph.types import Command
 
+from agent.core.fix_format import format_suggested_fix
 from agent.core.fixtures import load_alert, scenario_path
 from agent.core.graph import build_graph
 from agent.core.postmortem import generate_postmortem
@@ -55,6 +56,10 @@ def main() -> None:
     print(f"Reasoning: {culprit['reasoning']}")
     print(f"Runbook: {runbook['runbook_id'] if runbook else 'none found'}")
     print(f"Impact: {result['impact']['summary']}")
+
+    fix_block = format_suggested_fix(result.get("suggested_fix"))
+    if fix_block:
+        print(fix_block)
 
     proposed = result.get("proposed_action")
     if not proposed:

@@ -17,8 +17,10 @@ class State(TypedDict):
     incident_id: str
     alert: dict
     deploy_candidates: list[dict]
+    recent_deploys: list[dict]
     culprit_commit: dict | None
     ranked_candidates: list[dict]
+    suggested_fix: dict | None
     runbook_match: dict | None
     impact: dict | None
     proposed_action: dict | None

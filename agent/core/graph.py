@@ -1,11 +1,13 @@
-"""Investigation graph: LangGraph StateGraph wiring the culprit-ranking nodes.
+"""Investigation graph: the full LangGraph StateGraph.
 
-This is the first slice: gather_context + rank_commits only. Later slices
-add search_runbook, estimate_impact, propose_remediation, and the
-human-in-the-loop interrupt before execute_action. See docs/DESIGN.md §3.
+Flow: gather_context → rank_commits → (suggest_fix if a culprit was found) →
+search_runbook → estimate_impact → propose_remediation → [approval interrupt]
+→ execute_action. See docs/DESIGN.md §3.
 """
 
 from __future__ import annotations
+
+import os
 
 from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import HumanMessage, ToolMessage
@@ -16,6 +18,7 @@ from pydantic import BaseModel, Field, ValidationError
 
 from agent.core.actions.executors import execute
 from agent.core.actions.registry import validate_action
+from agent.core.fix_verifier import verify_fix
 from agent.core.ranking import rank_candidates
 from agent.core.state import State
 from agent.core.tools.actions import propose_action
@@ -45,6 +48,28 @@ class CulpritVerdict(BaseModel):
     confidence: float = Field(ge=0, le=1)
     reasoning: str
     ranked_candidates: list[RankedCandidate]
+
+
+class SuggestedFix(BaseModel):
+    explanation: str = Field(description="Plain-English summary of the fix")
+    function_name: str = Field(description="Name of the function under test")
+    buggy_code: str = Field(
+        description=(
+            "A self-contained module (subject.py) reconstructing the buggy "
+            "function from the culprit diff, importable as `from subject "
+            "import <function_name>`."
+        )
+    )
+    fixed_code: str = Field(
+        description="The same module, corrected so the bug no longer occurs."
+    )
+    test_code: str = Field(
+        description=(
+            "A pytest test file that does `from subject import <function_name>` "
+            "and asserts the bug is gone. It MUST fail against buggy_code and "
+            "pass against fixed_code."
+        )
+    )
 
 
 def gather_context(state: State) -> dict:
@@ -87,6 +112,9 @@ def gather_context(state: State) -> dict:
 
     return {
         "deploy_candidates": candidates,
+        # Full deploy window (not just the top-5 candidates) — propose_remediation
+        # needs it to compute a rollback target deterministically.
+        "recent_deploys": deploys,
         "messages": [HumanMessage(content=prompt)],
     }
 
@@ -158,6 +186,81 @@ def rank_commits(state: State) -> dict:
     }
 
 
+def _route_after_rank(state: State) -> str:
+    """Only try to suggest a code fix when a real culprit commit was found —
+    an external-cause incident (culprit_commit.commit_sha is None) has no
+    code to fix, so skip straight to the runbook lookup."""
+    culprit = state["culprit_commit"]
+    return "suggest_fix" if culprit and culprit.get("commit_sha") else "search_runbook"
+
+
+def suggest_fix(state: State) -> dict:
+    """Generate a candidate code fix for the culprit AND a test that proves
+    it — then actually run the test to verify (see agent/core/fix_verifier).
+
+    This complements the rollback proposed later: rollback is the immediate
+    mitigation (known-good state), this is the forward-fix for the follow-up
+    PR. It's an advisory + self-verified artifact, not an approval-gated
+    action, so it doesn't touch the interrupt.
+    """
+    # Keep the ranking eval (run_scenario) fast/cheap — it only measures
+    # culprit ranking, so it sets this flag to skip fix generation entirely.
+    if os.environ.get("SKIP_FIX_SUGGESTION"):
+        return {"suggested_fix": None}
+
+    alert = state["alert"]
+    culprit = state["culprit_commit"]
+
+    # The diff isn't retained in state — re-fetch it (and the error samples)
+    # for the fix-generation prompt. Both are cheap deterministic tool calls.
+    diff_info = get_commit_diff.invoke(
+        {"service": alert["service"], "commit_sha": culprit["commit_sha"]}
+    )
+    error_samples = get_error_samples.invoke(
+        {"service": alert["service"], "start": alert["fired_at"], "end": alert["fired_at"]}
+    )
+    samples_text = "\n\n".join(s.get("stack_trace", "") for s in error_samples)
+
+    prompt = (
+        "A bad deploy caused a production incident. Here is the culprit "
+        f"commit's diff:\n\n{diff_info['diff']}\n\n"
+        f"Observed error(s):\n{samples_text}\n\n"
+        "Produce a fix. Return a self-contained module `subject.py` in both "
+        "its buggy form (reconstructed from the diff) and its fixed form, plus "
+        "a pytest test that imports the function via `from subject import "
+        "<function_name>` and asserts the bug is gone. The test MUST fail "
+        "against the buggy module and pass against the fixed one. Keep the "
+        "module minimal — just the function needed to reproduce and verify the "
+        "bug, with no external dependencies."
+    )
+
+    fix_model = ChatAnthropic(model=MODEL, max_tokens=4096).with_structured_output(
+        SuggestedFix
+    )
+    fix: SuggestedFix | None = None
+    for _ in range(3):  # structured output can drop a field; retry a few times
+        try:
+            fix = fix_model.invoke([HumanMessage(content=prompt)])
+            break
+        except ValidationError:
+            continue
+    if fix is None:
+        # Couldn't get a well-formed fix — don't crash the investigation over
+        # an advisory extra; downstream just shows "no fix suggested".
+        return {"suggested_fix": None}
+
+    verification = verify_fix(fix.buggy_code, fix.fixed_code, fix.test_code)
+    return {
+        "suggested_fix": {
+            "explanation": fix.explanation,
+            "function_name": fix.function_name,
+            "fixed_code": fix.fixed_code,
+            "test_code": fix.test_code,
+            "verification": verification,
+        }
+    }
+
+
 def search_runbook(state: State) -> dict:
     """Deterministic retrieval: find the best-matching runbook using the
     alert description plus the culprit reasoning as the query. Plain
@@ -212,6 +315,44 @@ def estimate_impact(state: State) -> dict:
     }
 
 
+def _rollback_target(recent_deploys: list[dict], culprit_sha: str) -> str:
+    """The commit to roll back TO: the deploy immediately before the culprit.
+
+    Computed deterministically rather than trusting the model to pick it —
+    the model was observed filling this inconsistently (the culprit sha
+    itself, `sha^`, or a guessed neighbor). If the culprit is the oldest
+    deploy in the window (or absent), fall back to git parent-ref syntax,
+    which a real rollback executor resolves.
+    """
+    ordered = sorted(recent_deploys, key=lambda d: d["deployed_at"])
+    shas = [d["commit_sha"] for d in ordered]
+    if culprit_sha in shas:
+        idx = shas.index(culprit_sha)
+        if idx > 0:
+            return shas[idx - 1]
+    return f"{culprit_sha}^"
+
+
+def _harden_action_args(call: dict, state: State) -> dict:
+    """Overwrite the model-supplied action fields we can determine
+    authoritatively: the target service is always the alert's service, and a
+    rollback's target commit is computed from deploy history. The model's job
+    is judgment (which culprit, whether to act at all) — the mechanical
+    parameters are safer derived in code than guessed. Restart/scale keep the
+    model's action_args (e.g. replica count)."""
+    args = dict(call["args"])
+    args["target_service"] = state["alert"]["service"]
+    if args.get("action_type") == "rollback_to_previous_deploy":
+        culprit = state["culprit_commit"]
+        if culprit and culprit.get("commit_sha"):
+            args["action_args"] = {
+                "target_commit_sha": _rollback_target(
+                    state.get("recent_deploys", []), culprit["commit_sha"]
+                )
+            }
+    return args
+
+
 def propose_remediation(state: State) -> dict:
     """Model-driven step: decide whether a remediation is warranted and, if
     so, propose one from the fixed action registry via propose_action. The
@@ -252,9 +393,9 @@ def propose_remediation(state: State) -> dict:
         if not response.tool_calls:
             return {"proposed_action": None, "proposed_action_id": None}
 
-        call = response.tool_calls[0]
+        call_args = _harden_action_args(call := response.tool_calls[0], state)
         try:
-            proposed_result = propose_action.invoke(call["args"])
+            proposed_result = propose_action.invoke(call_args)
         except ValidationError as e:
             messages.append(ToolMessage(content=f"Error: {e}", tool_call_id=call["id"]))
             continue
@@ -309,6 +450,7 @@ def build_graph(checkpointer=None):
     graph = StateGraph(State)
     graph.add_node("gather_context", gather_context)
     graph.add_node("rank_commits", rank_commits)
+    graph.add_node("suggest_fix", suggest_fix)
     graph.add_node("search_runbook", search_runbook)
     graph.add_node("estimate_impact", estimate_impact)
     graph.add_node("propose_remediation", propose_remediation)
@@ -317,7 +459,9 @@ def build_graph(checkpointer=None):
 
     graph.add_edge(START, "gather_context")
     graph.add_edge("gather_context", "rank_commits")
-    graph.add_edge("rank_commits", "search_runbook")
+    # Branch: generate a code fix only when a real culprit was found.
+    graph.add_conditional_edges("rank_commits", _route_after_rank)
+    graph.add_edge("suggest_fix", "search_runbook")
     graph.add_edge("search_runbook", "estimate_impact")
     graph.add_edge("estimate_impact", "propose_remediation")
     graph.add_conditional_edges("propose_remediation", _route_after_proposal)

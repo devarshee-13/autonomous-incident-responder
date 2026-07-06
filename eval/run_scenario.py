@@ -23,6 +23,11 @@ from eval.harness import discover_scenarios, run_scenario
 
 load_dotenv()
 
+# This eval measures culprit ranking, not fix generation — skip the (slower,
+# costlier) suggest_fix node so the ranking eval stays fast. run_incident.py
+# exercises the fix path instead.
+os.environ.setdefault("SKIP_FIX_SUGGESTION", "1")
+
 
 def main() -> None:
     override = os.environ.get("SCENARIO_DIR")

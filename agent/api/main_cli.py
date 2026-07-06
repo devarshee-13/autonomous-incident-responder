@@ -16,6 +16,7 @@ from __future__ import annotations
 from dotenv import load_dotenv
 from fastapi import FastAPI
 
+from agent.core.fix_format import format_suggested_fix
 from agent.core.graph import build_graph
 
 load_dotenv()
@@ -50,6 +51,9 @@ def handle_alert(alert: dict):
     print(f"Reasoning: {culprit['reasoning']}")
     print(f"Runbook: {runbook['runbook_id'] if runbook else 'none found'}")
     print(f"Impact: {impact['summary']}")
+    fix_block = format_suggested_fix(snapshot.get("suggested_fix"))
+    if fix_block:
+        print(fix_block)
     if proposed:
         print(f"\nProposed action: {proposed['action_type']} on {proposed['target_service']}")
         print(f"Args: {proposed['action_args']}")

@@ -18,10 +18,8 @@ dependencies = [
     "fastapi",
     "uvicorn",
     "slack-bolt",
-]
-
-[project.optional-dependencies]
-dev = [
+    # Runtime dep: the fix verifier runs generated tests via `pytest`
+    # (agent/core/fix_verifier.py).
     "pytest>=8",
 ]
 

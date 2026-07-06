@@ -24,9 +24,13 @@ _SYSTEM = (
     "You are an SRE writing a blameless postmortem after a production "
     "incident has been resolved. Write in clear, factual markdown. Use these "
     "sections exactly: '## Summary', '## Timeline', '## Root Cause', "
-    "'## Impact', '## Resolution', '## Action Items'. Keep it concise and "
-    "specific to the data provided; do not invent details that aren't "
-    "supported by the incident record. Action Items should be concrete "
+    "'## Impact', '## Resolution', '## Action Items'. If the record contains "
+    "a suggested_fix, also add a '## Suggested Fix' section (after Resolution) "
+    "summarizing the proposed code change, including its verification status "
+    "(whether an automated test reproduced the bug and confirmed the fix); "
+    "include the corrected code and test in fenced code blocks. Keep it "
+    "concise and specific to the data provided; do not invent details that "
+    "aren't supported by the incident record. Action Items should be concrete "
     "follow-ups (tests to add, guards to introduce, alerting gaps to close), "
     "framed as preventing recurrence rather than assigning blame."
 )
@@ -45,6 +49,7 @@ def generate_postmortem(incident: dict) -> str:
         "proposed_action": incident.get("proposed_action"),
         "decision": incident.get("action_decision"),
         "execution_result": incident.get("execution_result"),
+        "suggested_fix": incident.get("suggested_fix"),
     }
 
     # langchain-anthropic defaults to max_tokens=1024, which truncates a

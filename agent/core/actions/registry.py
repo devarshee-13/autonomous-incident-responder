@@ -13,8 +13,14 @@ from pydantic import BaseModel, Field
 
 class RollbackToPreviousDeploy(BaseModel):
     action_type: Literal["rollback_to_previous_deploy"] = "rollback_to_previous_deploy"
-    target_service: str
-    target_commit_sha: str = Field(description="Commit to roll back to")
+    target_service: str = Field(description="The service to roll back — the alert's service")
+    target_commit_sha: str = Field(
+        description=(
+            "The last-known-good commit to restore, i.e. the deploy "
+            "immediately before the culprit — NOT the culprit itself. "
+            "Filled in deterministically by the agent (see graph._rollback_target)."
+        )
+    )
 
 
 class RestartService(BaseModel):

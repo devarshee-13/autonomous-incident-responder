@@ -1,0 +1,7 @@
+{
+  "service": "payments-service",
+  "alert_name": "HighErrorRate",
+  "description": "Error rate for payments-service exceeded 5% over a 5 minute window",
+  "fired_at": "2026-07-05T14:32:00Z",
+  "severity": "critical"
+}

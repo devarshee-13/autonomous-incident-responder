@@ -1,0 +1,4 @@
+{
+  "culprit_commit_sha": "b7d3e88",
+  "reason": "calculate_total divides by (1 - discount_pct / 100); a 100% discount divides by zero. Matches the ZeroDivisionError stack trace pointing at payments/pricing.py:calculate_total."
+}

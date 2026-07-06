@@ -1,0 +1,11 @@
+[
+  {
+    "service": "payments-service",
+    "timestamp": "2026-07-05T14:31:10Z",
+    "fingerprint": "zerodivision-pricing",
+    "count": 143,
+    "exception_type": "ZeroDivisionError",
+    "message": "float division by zero",
+    "stack_trace": "Traceback (most recent call last):\n  File \"payments/checkout.py\", line 15, in checkout\n    total = calculate_total(cart.subtotal, cart.discount_pct)\n  File \"payments/pricing.py\", line 39, in calculate_total\n    return subtotal / (1 - discount_pct / 100)\nZeroDivisionError: float division by zero\n"
+  }
+]

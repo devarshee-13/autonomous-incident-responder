@@ -1,0 +1,47 @@
+[
+  {
+    "service": "payments-service",
+    "commit_sha": "c9f2a11",
+    "author": "jsmith",
+    "message": "Add retry logic for downstream payment gateway calls",
+    "deployed_at": "2026-07-05T14:20:00Z",
+    "files_changed": ["payments/gateway_client.py"],
+    "diff": "--- a/payments/gateway_client.py\n+++ b/payments/gateway_client.py\n@@ -30,7 +30,11 @@ def charge(payload):\n-    return _call_gateway(payload)\n+    for attempt in range(MAX_RETRIES):\n+        try:\n+            return _call_gateway(payload)\n+        except GatewayTimeout:\n+            continue\n+    raise GatewayUnavailable()\n"
+  },
+  {
+    "service": "payments-service",
+    "commit_sha": "b7d3e88",
+    "author": "agupta",
+    "message": "Support percentage discounts up to 100% in total calculation",
+    "deployed_at": "2026-07-05T13:55:00Z",
+    "files_changed": ["payments/pricing.py"],
+    "diff": "--- a/payments/pricing.py\n+++ b/payments/pricing.py\n@@ -38,7 +38,7 @@ def calculate_total(subtotal, discount_pct):\n-    return subtotal * (1 - discount_pct / 100)\n+    return subtotal / (1 - discount_pct / 100)\n"
+  },
+  {
+    "service": "payments-service",
+    "commit_sha": "a4c1f02",
+    "author": "mchen",
+    "message": "Add structured logging around checkout flow",
+    "deployed_at": "2026-07-05T12:10:00Z",
+    "files_changed": ["payments/checkout.py"],
+    "diff": "--- a/payments/checkout.py\n+++ b/payments/checkout.py\n@@ -12,6 +12,7 @@ def checkout(cart):\n+    logger.info(\"checkout_started\", cart_id=cart.id)\n     total = calculate_total(cart.subtotal, cart.discount_pct)\n"
+  },
+  {
+    "service": "payments-service",
+    "commit_sha": "9e8b716",
+    "author": "jsmith",
+    "message": "Bump requests library version",
+    "deployed_at": "2026-07-05T09:45:00Z",
+    "files_changed": ["requirements.txt"],
+    "diff": "--- a/requirements.txt\n+++ b/requirements.txt\n@@ -4,1 +4,1 @@\n-requests==2.31.0\n+requests==2.32.3\n"
+  },
+  {
+    "service": "payments-service",
+    "commit_sha": "6a2d901",
+    "author": "mchen",
+    "message": "Refactor order confirmation email template",
+    "deployed_at": "2026-07-04T16:00:00Z",
+    "files_changed": ["notifications/email.py"],
+    "diff": "--- a/notifications/email.py\n+++ b/notifications/email.py\n@@ -50,7 +50,7 @@ def render_confirmation(order):\n-    return TEMPLATE.format(name=order.customer_name)\n+    return TEMPLATE.format(name=order.customer_name, order_id=order.id)\n"
+  }
+]

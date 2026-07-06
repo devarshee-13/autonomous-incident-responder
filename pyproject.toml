@@ -1,0 +1,19 @@
+[project]
+name = "autonomous-incident-responder"
+version = "0.1.0"
+description = "Autonomous AI agent that investigates production incidents: ranks likely culprit commits, retrieves runbooks, estimates impact, posts a Slack brief, and drafts a postmortem."
+requires-python = ">=3.11"
+dependencies = [
+    "langgraph>=0.2",
+    "langchain-anthropic>=0.2",
+    "langchain-core>=0.3",
+    "pydantic>=2",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
